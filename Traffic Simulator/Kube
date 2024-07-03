@@ -1,0 +1,5 @@
+# Define the cut-off date, 8 months ago from today
+cutoff_date=$(date -d '8 months ago' +%Y-%m-%dT%H:%M:%SZ)
+
+# Get all namespaces and filter by creation date
+kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp > "'$cutoff_date'")]}{.metadata.name}{"\n"}{end}'
