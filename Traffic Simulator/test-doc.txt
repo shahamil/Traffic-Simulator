@@ -61,3 +61,22 @@ Promotional Materials: [Estimate costs for brochures, banners, and other promoti
 Miscellaneous: [Any additional costs]
 8. Conclusion
 Participating in the internal company conference and showcase offers a strategic opportunity for the Compute Fabric team to highlight our innovative features, attract new clients, and drive adoption across QTS business lines. By focusing on the improved developer experience, financial benefits, increased productivity through integration, ease of containerizing applications, and our platform's role in containerizing capital markets applications, we aim to provide valuable insights and contribute to the company's overall success. We are committed to making our booth an engaging and informative experience for all attendees.
+
+Title: Enhancing Security and Efficiency with Vault Agent for Kubernetes
+
+Description:
+Join the Compute Fabric team as we delve into the transformative capabilities of Vault Agent for Kubernetes within our private cloud platform. This session will explore how integrating Vault Agent enhances security, simplifies secrets management, and boosts operational efficiency for your Kubernetes deployments.
+
+Key Takeaways:
+
+	•	Streamlined Secrets Management: Learn how Vault Agent automates the injection of secrets into your Kubernetes pods, eliminating manual processes and reducing human error.
+	•	Enhanced Security Posture: Discover the robust security features that Vault Agent brings, including automatic secrets rotation, access control policies, and encrypted communications.
+	•	Operational Efficiency: See how Vault Agent seamlessly integrates with our Kubernetes platform to provide a unified, scalable solution for managing sensitive data, improving both developer productivity and application performance.
+	•	Real-world Use Cases: Hear about successful implementations and the tangible benefits our clients have experienced, including reduced downtime, enhanced compliance, and simplified DevOps workflows.
+
+Why Attend:
+This talk is essential for developers, DevOps engineers, and IT security professionals looking to leverage the full potential of Kubernetes while ensuring their applications remain secure and compliant. Whether you’re already using our platform or considering a transition, this session will provide valuable insights and practical strategies to optimize your Kubernetes deployments with Vault Agent.
+
+Join us to unlock new levels of security and efficiency for your cloud-native applications.
+
+Feel free to adjust the details to better fit your specific audience and objectives!
