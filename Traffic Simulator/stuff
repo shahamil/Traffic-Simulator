@@ -1,0 +1,4 @@
+kubectl get pods --all-namespaces -o jsonpath="{.items[*].spec.containers[*].resources.requests.cpu}" | tr -s ' ' '\n' | awk '
+/m$/ {s+=$1} 
+/^[0-9]+$/ {s+=$1*1000}
+END {print s}'
