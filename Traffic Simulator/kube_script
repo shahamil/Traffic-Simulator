@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# Define the cut-off date, 8 months ago from today
+cutoff_date=$(gdate -d '8 months ago' +%Y-%m-%dT%H:%M:%SZ)
+
+# Get the cluster name
+cluster_name=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')
+
+# Output CSV header
+echo "AppCode,Namespace,CreationTimestamp,ClusterName,TotalNamespaces,TotalCPURequests,TotalMemoryRequests" > namespace_report.csv
+
+# Get all namespaces and filter by creation date
+namespaces=$(kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp > "'$cutoff_date'")]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
+
+# Initialize an associative array to store namespace counts, CPU, and memory requests
+declare -A namespace_count
+declare -A cpu_requests
+declare -A memory_requests
+
+# Process each namespace to collect CPU and memory requests
+echo "$namespaces" | while IFS=, read -r namespace creationTimestamp; do
+  appcode=$(echo "$namespace" | cut -d'-' -f1)
+  
+  # Increment namespace count for this appcode
+  ((namespace_count[$appcode]++))
+  
+  # Get pod CPU and memory requests for this namespace
+  pods=$(kubectl get pods -n "$namespace" -o jsonpath='{range .items[*]}{.spec.containers[*].resources.requests.cpu},{.spec.containers[*].resources.requests.memory}{"\n"}{end}')
+  echo "$pods" | while IFS=, read -r cpu memory; do
+    # Sum up CPU and memory requests
+    if [[ -n "$cpu" ]]; then
+      cpu_requests[$appcode]=$((cpu_requests[$appcode] + ${cpu%m}))
+    fi
+    if [[ -n "$memory" ]]; then
+      memory_requests[$appcode]=$((memory_requests[$appcode] + ${memory%Mi}))
+    fi
+  done
+done
+
+# Write the collected data to the CSV file
+for appcode in "${!namespace_count[@]}"; do
+  # Find the earliest namespace creationTimestamp for this appcode
+  earliest_namespace=$(echo "$namespaces" | grep "^$appcode" | sort -t ',' -k2 | head -n 1)
+  namespace=$(echo "$earliest_namespace" | cut -d',' -f1)
+  creationTimestamp=$(echo "$earliest_namespace" | cut -d',' -f2)
+  
+  # Get the total CPU and memory requests
+  total_cpu=${cpu_requests[$appcode]}
+  total_memory=${memory_requests[$appcode]}
+  
+  # Write the data to the CSV file
+  echo "$appcode,$namespace,$creationTimestamp,$cluster_name,${namespace_count[$appcode]},$total_cpu,$total_memory" >> namespace_report.csv
+done
+
+echo "Report generated: namespace_report.csv"
