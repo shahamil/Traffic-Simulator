@@ -22,8 +22,9 @@ cutoff_date=$(gdate -d '8 months ago' +%Y-%m-%dT%H:%M:%SZ)
 # Output CSV header
 echo "AppCode,Namespace,CreationTimestamp" > namespace_report.csv
 
-# Get all namespaces, filter by creation date, extract app code, and format the output as CSV
-kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp > "'$cutoff_date'")]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}' | while IFS=, read -r namespace creationTimestamp; do
-  appcode=$(echo "$namespace" | grep -o '^[^-]*')
-  echo "$appcode,$namespace,$creationTimestamp" >> namespace_report.csv
-done
+# Get all namespaces, filter by creation date, extract app code, and sort by creation timestamp
+kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp > "'$cutoff_date'")]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}' | sort -t ',' -k2 | while IFS=, read -r namespace creationTimestamp; do
+  appcode=$(echo "$namespace" | cut -d'-' -f1)
+  if ! grep -q "^$appcode," namespace_report.csv; then
+    echo "$appcode,$namespace,$creationTimestamp" >> namespace_report.csv
+  fi
