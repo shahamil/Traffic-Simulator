@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# Check if the correct number of arguments is provided
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <number_of_months> <output_file>"
+  exit 1
+fi
+
+# Parameters
+num_months=$1
+output_file=$2
+
+# Define the cut-off date using gdate
+cutoff_date=$(gdate -d "$num_months months ago" +%Y-%m-%dT%H:%M:%SZ)
+
+# Get the cluster name
+cluster_name=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')
+
+# Output CSV header
+echo "AppCode,FirstNamespaceOnboarded,CreationTimestamp,ClusterName,TotalNamespaces" > "$output_file"
+
+# Get all namespaces and filter by creation date
+namespaces=$(kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp > "'$cutoff_date'")]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
+
+# Process each namespace to count and gather data
+echo "$namespaces" | while IFS=, read -r namespace creationTimestamp; do
+  appcode=$(echo "$namespace" | cut -d'-' -f1)
+  
+  echo "Processing AppCode: $appcode in Namespace: $namespace"
+  
+  # Extract only the year, month, and day from the creationTimestamp
+  creationDate=$(echo "$creationTimestamp" | cut -d'T' -f1)
+  
+  # Find the earliest namespace creationDate for this appcode
+  earliest_namespace=$(echo "$namespaces" | grep "^$appcode" | sort -t ',' -k2 | head -n 1)
+  earliest_namespace_name=$(echo "$earliest_namespace" | cut -d',' -f1)
+  earliest_creationDate=$(echo "$earliest_namespace" | cut -d',' -f2 | cut -d'T' -f1)
+  
+  # Count namespaces
+  total_namespaces=$(echo "$namespaces" | grep "^$appcode" | wc -l)
+  
+  # Write the data to the CSV file
+  echo "$appcode,$earliest_namespace_name,$earliest_creationDate,$cluster_name,$total_namespaces" >> "$output_file"
+done
+
+echo "Report generated: $output_file"
