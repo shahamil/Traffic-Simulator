@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Define the cut-off date, 8 months ago from today
-cutoff_date=$(date -v-8m +%Y-%m-%dT%H:%M:%SZ)
+# Define the cut-off date, 8 months ago from today using gdate
+cutoff_date=$(gdate -d '8 months ago' +%Y-%m-%dT%H:%M:%SZ)
 
 # Get the cluster name
 cluster_name=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')
 
 # Output CSV header
-echo "AppCode,Namespace,CreationTimestamp,ClusterName,TotalNamespaces,TotalCPURequests,TotalMemoryRequests" > namespace_report.csv
+echo "AppCode,Namespace,CreationTimestamp,ClusterName,TotalNamespaces,TotalCPURequests (Cores),TotalMemoryRequests (GB)" > namespace_report.csv
 
 # Get all namespaces and filter by creation date
 namespaces=$(kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp > "'$cutoff_date'")]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
@@ -19,21 +19,33 @@ temp_file=$(mktemp)
 echo "$namespaces" | while IFS=, read -r namespace creationTimestamp; do
   appcode=$(echo "$namespace" | cut -d'-' -f1)
   
+  echo "Processing AppCode: $appcode in Namespace: $namespace"
+
   # Get pod CPU and memory requests for this namespace
   pods=$(kubectl get pods -n "$namespace" -o jsonpath='{range .items[*]}{.spec.containers[*].resources.requests.cpu},{.spec.containers[*].resources.requests.memory}{"\n"}{end}')
   echo "$pods" | while IFS=, read -r cpu memory; do
-    # Append CPU and memory requests to the temp file
+    # Convert CPU and memory requests and append to the temp file
     if [[ -n "$cpu" ]]; then
-      echo "$appcode,$cpu" >> "$temp_file"
+      # Convert milliCPU to CPU cores (e.g., 500m becomes 0.5)
+      cpu_cores=$(echo "$cpu" | sed 's/m//g')
+      cpu_cores=$(awk "BEGIN {print $cpu_cores/1000}")
+      echo "$appcode,$cpu_cores" >> "$temp_file"
     fi
     if [[ -n "$memory" ]]; then
-      echo "$appcode,$memory" >> "$temp_file"
+      # Convert memory from Mi to GB (e.g., 256Mi becomes 0.256)
+      memory_gb=$(echo "$memory" | sed 's/Mi//g')
+      memory_gb=$(awk "BEGIN {print $memory_gb/1024}")
+      echo "$appcode,$memory_gb" >> "$temp_file"
     fi
   done
 done
 
+echo "Processing complete. Generating final report..."
+
 # Calculate totals and write to the CSV file
 for appcode in $(cut -d',' -f1 "$temp_file" | sort | uniq); do
+  echo "Aggregating data for AppCode: $appcode"
+  
   # Find the earliest namespace creationTimestamp for this appcode
   earliest_namespace=$(echo "$namespaces" | grep "^$appcode" | sort -t ',' -k2 | head -n 1)
   namespace=$(echo "$earliest_namespace" | cut -d',' -f1)
