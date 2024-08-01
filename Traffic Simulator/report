@@ -10,8 +10,8 @@ fi
 num_months=$1
 output_file=$2
 
-# Define the cut-off date using gdate
-cutoff_date=$(gdate -d "$num_months months ago" +%Y-%m-%dT%H:%M:%SZ)
+# Define the cut-off date
+cutoff_date=$(date -d "$num_months months ago" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -v-"$num_months"m +%Y-%m-%dT%H:%M:%SZ)
 
 # Get the cluster name
 cluster_name=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')
@@ -22,25 +22,42 @@ echo "AppCode,FirstNamespaceOnboarded,CreationTimestamp,ClusterName,TotalNamespa
 # Get all namespaces and filter by creation date
 namespaces=$(kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp > "'$cutoff_date'")]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
 
+# Create temporary files to store intermediate data
+earliest_file=$(mktemp)
+counts_file=$(mktemp)
+
 # Process each namespace to count and gather data
 echo "$namespaces" | while IFS=, read -r namespace creationTimestamp; do
   appcode=$(echo "$namespace" | cut -d'-' -f1)
-  
+
   echo "Processing AppCode: $appcode in Namespace: $namespace"
-  
+
   # Extract only the year, month, and day from the creationTimestamp
   creationDate=$(echo "$creationTimestamp" | cut -d'T' -f1)
-  
-  # Find the earliest namespace creationDate for this appcode
-  earliest_namespace=$(echo "$namespaces" | grep "^$appcode" | sort -t ',' -k2 | head -n 1)
-  earliest_namespace_name=$(echo "$earliest_namespace" | cut -d',' -f1)
-  earliest_creationDate=$(echo "$earliest_namespace" | cut -d',' -f2 | cut -d'T' -f1)
-  
-  # Count namespaces
-  total_namespaces=$(echo "$namespaces" | grep "^$appcode" | wc -l)
-  
-  # Write the data to the CSV file
-  echo "$appcode,$earliest_namespace_name,$earliest_creationDate,$cluster_name,$total_namespaces" >> "$output_file"
+
+  # Update the earliest namespace creation date and name for this appcode
+  if ! grep -q "^$appcode," "$earliest_file" || [[ "$creationTimestamp" < "$(grep "^$appcode," "$earliest_file" | cut -d',' -f3)" ]]; then
+    grep -v "^$appcode," "$earliest_file" > "${earliest_file}.tmp" && mv "${earliest_file}.tmp" "$earliest_file"
+    echo "$appcode,$namespace,$creationTimestamp" >> "$earliest_file"
+  fi
+
+  # Increment the namespace count for this appcode
+  if grep -q "^$appcode," "$counts_file"; then
+    count=$(grep "^$appcode," "$counts_file" | cut -d',' -f2)
+    new_count=$((count + 1))
+    sed -i'' -e "s/^$appcode,.*/$appcode,$new_count/" "$counts_file"
+  else
+    echo "$appcode,1" >> "$counts_file"
+  fi
 done
+
+# Write the aggregated data to the CSV file
+while IFS=, read -r appcode namespace creationTimestamp; do
+  total_namespaces=$(grep "^$appcode," "$counts_file" | cut -d',' -f2)
+  echo "$appcode,$namespace,${creationTimestamp:0:10},$cluster_name,$total_namespaces" >> "$output_file"
+done < "$earliest_file"
+
+# Cleanup temporary files
+rm "$earliest_file" "$counts_file"
 
 echo "Report generated: $output_file"
