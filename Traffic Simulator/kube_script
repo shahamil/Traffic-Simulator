@@ -7,35 +7,52 @@ cutoff_date=$(gdate -d '8 months ago' +%Y-%m-%dT%H:%M:%SZ)
 cluster_name=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')
 
 # Output CSV header
-echo "AppCode,Namespace,CreationTimestamp,ClusterName,TotalNamespaces,TotalCPURequests (Cores),TotalMemoryRequests (GB)" > namespace_report.csv
+echo "AppCode,Namespace,CreationTimestamp,ClusterName,TotalNamespaces,TotalCPURequests (Cores),TotalMemoryRequests (GB),TotalCPULimits (Cores),TotalMemoryLimits (GB)" > namespace_report.csv
 
 # Get all namespaces and filter by creation date
 namespaces=$(kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp > "'$cutoff_date'")]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
 
-# Temporary file to store CPU and memory requests
-temp_file=$(mktemp)
+# Temporary files to store CPU and memory requests and limits
+cpu_request_file=$(mktemp)
+memory_request_file=$(mktemp)
+cpu_limit_file=$(mktemp)
+memory_limit_file=$(mktemp)
 
-# Process each namespace to collect CPU and memory requests
+# Process each namespace to collect CPU and memory requests and limits
 echo "$namespaces" | while IFS=, read -r namespace creationTimestamp; do
   appcode=$(echo "$namespace" | cut -d'-' -f1)
   
   echo "Processing AppCode: $appcode in Namespace: $namespace"
 
-  # Get pod CPU and memory requests for this namespace
-  pods=$(kubectl get pods -n "$namespace" -o jsonpath='{range .items[*]}{.spec.containers[*].resources.requests.cpu},{.spec.containers[*].resources.requests.memory}{"\n"}{end}')
-  echo "$pods" | while IFS=, read -r cpu memory; do
-    # Convert CPU and memory requests and append to the temp file
-    if [[ -n "$cpu" ]]; then
-      # Convert milliCPU to CPU cores (e.g., 500m becomes 0.5)
-      cpu_cores=$(echo "$cpu" | sed 's/m//g')
-      cpu_cores=$(awk "BEGIN {print $cpu_cores/1000}")
-      echo "$appcode,$cpu_cores" >> "$temp_file"
+  # Get pod CPU and memory requests and limits for this namespace
+  pods=$(kubectl get pods -n "$namespace" -o jsonpath='{range .items[*]}{.spec.containers[*].resources.requests.cpu},{.spec.containers[*].resources.requests.memory},{.spec.containers[*].resources.limits.cpu},{.spec.containers[*].resources.limits.memory}{"\n"}{end}')
+  echo "$pods" | while IFS=, read -r cpu_request memory_request cpu_limit memory_limit; do
+    # Process CPU requests
+    if [[ -n "$cpu_request" ]]; then
+      cpu_request_cores=$(echo "$cpu_request" | sed 's/m//g')
+      cpu_request_cores=$(awk "BEGIN {print $cpu_request_cores/1000}")
+      echo "$appcode,$cpu_request_cores" >> "$cpu_request_file"
     fi
-    if [[ -n "$memory" ]]; then
-      # Convert memory from Mi to GB (e.g., 256Mi becomes 0.256)
-      memory_gb=$(echo "$memory" | sed 's/Mi//g')
-      memory_gb=$(awk "BEGIN {print $memory_gb/1024}")
-      echo "$appcode,$memory_gb" >> "$temp_file"
+
+    # Process memory requests
+    if [[ -n "$memory_request" ]]; then
+      memory_request_gb=$(echo "$memory_request" | sed 's/Mi//g')
+      memory_request_gb=$(awk "BEGIN {print $memory_request_gb/1024}")
+      echo "$appcode,$memory_request_gb" >> "$memory_request_file"
+    fi
+
+    # Process CPU limits
+    if [[ -n "$cpu_limit" ]]; then
+      cpu_limit_cores=$(echo "$cpu_limit" | sed 's/m//g')
+      cpu_limit_cores=$(awk "BEGIN {print $cpu_limit_cores/1000}")
+      echo "$appcode,$cpu_limit_cores" >> "$cpu_limit_file"
+    fi
+
+    # Process memory limits
+    if [[ -n "$memory_limit" ]]; then
+      memory_limit_gb=$(echo "$memory_limit" | sed 's/Mi//g')
+      memory_limit_gb=$(awk "BEGIN {print $memory_limit_gb/1024}")
+      echo "$appcode,$memory_limit_gb" >> "$memory_limit_file"
     fi
   done
 done
@@ -43,7 +60,7 @@ done
 echo "Processing complete. Generating final report..."
 
 # Calculate totals and write to the CSV file
-for appcode in $(cut -d',' -f1 "$temp_file" | sort | uniq); do
+for appcode in $(cut -d',' -f1 "$cpu_request_file" "$memory_request_file" "$cpu_limit_file" "$memory_limit_file" | sort | uniq); do
   echo "Aggregating data for AppCode: $appcode"
   
   # Find the earliest namespace creationTimestamp for this appcode
@@ -51,16 +68,20 @@ for appcode in $(cut -d',' -f1 "$temp_file" | sort | uniq); do
   namespace=$(echo "$earliest_namespace" | cut -d',' -f1)
   creationTimestamp=$(echo "$earliest_namespace" | cut -d',' -f2)
   
-  # Count namespaces and sum CPU/memory requests
+  # Count namespaces
   total_namespaces=$(echo "$namespaces" | grep "^$appcode" | wc -l)
-  total_cpu=$(grep "^$appcode," "$temp_file" | awk -F, '{s+=$2} END {print s}')
-  total_memory=$(grep "^$appcode," "$temp_file" | awk -F, '{s+=$2} END {print s}')
+  
+  # Sum CPU and memory requests and limits
+  total_cpu_request=$(grep "^$appcode," "$cpu_request_file" | awk -F, '{s+=$2} END {print s}')
+  total_memory_request=$(grep "^$appcode," "$memory_request_file" | awk -F, '{s+=$2} END {print s}')
+  total_cpu_limit=$(grep "^$appcode," "$cpu_limit_file" | awk -F, '{s+=$2} END {print s}')
+  total_memory_limit=$(grep "^$appcode," "$memory_limit_file" | awk -F, '{s+=$2} END {print s}')
   
   # Write the data to the CSV file
-  echo "$appcode,$namespace,$creationTimestamp,$cluster_name,$total_namespaces,$total_cpu,$total_memory" >> namespace_report.csv
+  echo "$appcode,$namespace,$creationTimestamp,$cluster_name,$total_namespaces,$total_cpu_request,$total_memory_request,$total_cpu_limit,$total_memory_limit" >> namespace_report.csv
 done
 
 # Clean up
-rm "$temp_file"
+rm "$cpu_request_file" "$memory_request_file" "$cpu_limit_file" "$memory_limit_file"
 
 echo "Report generated: namespace_report.csv"
