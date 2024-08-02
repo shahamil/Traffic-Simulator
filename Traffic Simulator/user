@@ -17,9 +17,14 @@ start_date=$1
 end_date=$2
 output_file=$3
 
-# Validate date format
-if ! date -d "$start_date" &> /dev/null || ! date -d "$end_date" &> /dev/null; then
-  echo "Dates must be in YYYY-MM-DD format."
+# Validate date format using regex and check if date is valid
+validate_date() {
+  date -d "$1" &> /dev/null
+  return $?
+}
+
+if ! validate_date "$start_date" || ! validate_date "$end_date"; then
+  echo "Dates must be in YYYY-MM-DD format and valid."
   usage
 fi
 
@@ -37,9 +42,9 @@ echo "$k8s_data" | jq -r '
     .metadata.annotations.developer // .metadata.labels.developer)] | 
   @csv' > "$temp_file"
 
-# Initialize associative arrays
-declare -A user_activity
-declare -A namespace_counts
+# Initialize arrays
+user_activity=()
+namespace_counts=()
 
 # Process the data
 while IFS=',' read -r deployment namespace creationTimestamp user; do
@@ -54,7 +59,7 @@ while IFS=',' read -r deployment namespace creationTimestamp user; do
     user=$(echo "$user" | sed 's/"//g')
     namespace=$(echo "$namespace" | sed 's/"//g')
     
-    # Track deployments and namespaces
+    # Check if user is already in the array
     if [[ -z "${user_activity[$user]}" ]]; then
       user_activity[$user]="1 $namespace"
     else
@@ -63,6 +68,7 @@ while IFS=',' read -r deployment namespace creationTimestamp user; do
       user_activity[$user]="$((count + 1)) $namespaces $namespace"
     fi
     
+    # Count namespaces
     if [[ -z "${namespace_counts[$user]}" ]]; then
       namespace_counts[$user]="$namespace"
     else
