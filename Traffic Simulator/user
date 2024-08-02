@@ -1,0 +1,71 @@
+import csv
+import subprocess
+import json
+from collections import defaultdict
+from datetime import datetime
+import sys
+
+def fetch_k8s_data():
+    """Fetch deployments data from Kubernetes."""
+    result = subprocess.run(['kubectl', 'get', 'deployments', '--all-namespaces', '-o', 'json'], capture_output=True, text=True)
+    return result.stdout
+
+def parse_data(data, start_date, end_date):
+    """Parse the Kubernetes data to extract user and developer activity."""
+    deployments = json.loads(data)
+    user_activity = defaultdict(lambda: {'deployments': 0, 'namespaces': set()})
+    
+    for item in deployments['items']:
+        namespace = item['metadata']['namespace']
+        annotations = item['metadata'].get('annotations', {})
+        labels = item['metadata'].get('labels', {})
+        
+        user = annotations.get('user', labels.get('user'))
+        if not user:
+            user = annotations.get('developer', labels.get('developer'))
+        
+        creation_timestamp = item['metadata']['creationTimestamp']
+        creation_date = creation_timestamp.split('T')[0]
+        
+        if user and start_date <= creation_date <= end_date:
+            user_activity[user]['deployments'] += 1
+            user_activity[user]['namespaces'].add(namespace)
+    
+    # Convert namespaces set to count
+    for user, activity in user_activity.items():
+        activity['namespaces'] = len(activity['namespaces'])
+    
+    return user_activity
+
+def generate_report(user_activity, output_file):
+    """Generate a CSV report of the top users and developers."""
+    with open(output_file, 'w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['User/Developer', 'Total Deployments', 'Total Namespaces'])
+        for user, activity in sorted(user_activity.items(), key=lambda x: x[1]['deployments'], reverse=True):
+            writer.writerow([user, activity['deployments'], activity['namespaces']])
+    print(f"Report generated: {output_file}")
+
+if __name__ == "__main__":
+    # Check if the correct number of arguments is provided
+    if len(sys.argv) != 4:
+        print("Usage: python generate_top_users_report.py <start_date> <end_date> <output_file>")
+        sys.exit(1)
+
+    # Parameters
+    start_date = sys.argv[1]
+    end_date = sys.argv[2]
+    output_file = sys.argv[3]
+
+    # Validate date format
+    try:
+        datetime.strptime(start_date, '%Y-%m-%d')
+        datetime.strptime(end_date, '%Y-%m-%d')
+    except ValueError:
+        print("Dates must be in YYYY-MM-DD format.")
+        sys.exit(1)
+
+    # Fetch and process data
+    k8s_data = fetch_k8s_data()
+    user_activity = parse_data(k8s_data, start_date, end_date)
+    generate_report(user_activity, output_file)
