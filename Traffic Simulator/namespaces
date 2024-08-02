@@ -20,7 +20,7 @@ echo "AppCode,FirstNamespaceOnboarded,CreationTimestamp,ClusterName,TotalNamespa
 # Get all namespaces
 namespaces=$(kubectl get namespaces -o jsonpath='{range .items[*]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
 
-# Initialize associative arrays using plain shell arrays
+# Initialize arrays to store earliest namespace and count per appcode
 earliest_namespace_keys=()
 earliest_namespace_values=()
 namespace_counts_keys=()
@@ -40,6 +40,9 @@ find_index() {
   echo -1
 }
 
+# Initialize total namespace count within the date range
+total_namespaces_created=0
+
 # Process each namespace to count and gather data
 while IFS=, read -r namespace creationTimestamp; do
   creationDate=$(echo "$creationTimestamp" | cut -d'T' -f1)
@@ -48,6 +51,9 @@ while IFS=, read -r namespace creationTimestamp; do
   if [[ "$creationDate" < "$start_date" ]] || [[ "$creationDate" > "$end_date" ]]; then
     continue
   fi
+
+  # Increment the total namespaces created within the date range
+  total_namespaces_created=$((total_namespaces_created + 1))
 
   appcode=$(echo "$namespace" | cut -d'-' -f1)
 
@@ -85,7 +91,5 @@ done
 
 echo "Report generated: $output_file"
 
-# Count total namespaces created between start and end date
-total_namespaces_created=$(grep -c ".*" <<< "$namespaces")
-
+# Output the total namespaces created within the date range
 echo "Total namespaces created between $start_date and $end_date: $total_namespaces_created"
