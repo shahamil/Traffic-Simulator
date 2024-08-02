@@ -17,8 +17,8 @@ cluster_name=$(kubectl config view --minify -o jsonpath='{.clusters[0].name}')
 # Output CSV header
 echo "AppCode,FirstNamespaceOnboarded,CreationTimestamp,ClusterName,TotalNamespaces" > "$output_file"
 
-# Get all namespaces and filter by creation date
-namespaces=$(kubectl get namespaces -o jsonpath='{range .items[?(@.metadata.creationTimestamp >= "'$start_date'T00:00:00Z" && @.metadata.creationTimestamp <= "'$end_date'T23:59:59Z")]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
+# Get all namespaces
+namespaces=$(kubectl get namespaces -o jsonpath='{range .items[*]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
 
 # Initialize associative arrays using plain shell arrays
 earliest_namespace_keys=()
@@ -27,7 +27,7 @@ namespace_counts_keys=()
 namespace_counts_values=()
 
 # Helper function to find index in array
-function find_index {
+find_index() {
   local value=$1
   shift
   local arr=("$@")
@@ -42,12 +42,16 @@ function find_index {
 
 # Process each namespace to count and gather data
 while IFS=, read -r namespace creationTimestamp; do
+  creationDate=$(echo "$creationTimestamp" | cut -d'T' -f1)
+
+  # Filter namespaces by creation date
+  if [[ "$creationDate" < "$start_date" ]] || [[ "$creationDate" > "$end_date" ]]; then
+    continue
+  fi
+
   appcode=$(echo "$namespace" | cut -d'-' -f1)
 
   echo "Processing AppCode: $appcode in Namespace: $namespace"
-
-  # Extract only the year, month, and day from the creationTimestamp
-  creationDate=$(echo "$creationTimestamp" | cut -d'T' -f1)
 
   # Update the earliest namespace creation date and name for this appcode
   index=$(find_index "$appcode" "${earliest_namespace_keys[@]}")
@@ -82,6 +86,6 @@ done
 echo "Report generated: $output_file"
 
 # Count total namespaces created between start and end date
-total_namespaces_created=$(echo "$namespaces" | wc -l)
+total_namespaces_created=$(grep -c ".*" <<< "$namespaces")
 
 echo "Total namespaces created between $start_date and $end_date: $total_namespaces_created"
