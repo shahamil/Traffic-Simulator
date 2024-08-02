@@ -1,71 +1,85 @@
-import csv
-import subprocess
-import json
-from collections import defaultdict
-from datetime import datetime
-import sys
+#!/bin/bash
 
-def fetch_k8s_data():
-    """Fetch deployments data from Kubernetes."""
-    result = subprocess.run(['kubectl', 'get', 'deployments', '--all-namespaces', '-o', 'json'], capture_output=True, text=True)
-    return result.stdout
+# Function to print usage
+usage() {
+  echo "Usage: $0 <start_date> <end_date> <output_file>"
+  echo "Dates must be in YYYY-MM-DD format."
+  exit 1
+}
 
-def parse_data(data, start_date, end_date):
-    """Parse the Kubernetes data to extract user and developer activity."""
-    deployments = json.loads(data)
-    user_activity = defaultdict(lambda: {'deployments': 0, 'namespaces': set()})
+# Check if the correct number of arguments is provided
+if [ "$#" -ne 3 ]; then
+  usage
+fi
+
+# Parameters
+start_date=$1
+end_date=$2
+output_file=$3
+
+# Validate date format
+if ! date -d "$start_date" &> /dev/null || ! date -d "$end_date" &> /dev/null; then
+  echo "Dates must be in YYYY-MM-DD format."
+  usage
+fi
+
+# Get the Kubernetes data
+k8s_data=$(kubectl get deployments --all-namespaces -o json)
+
+# Temporary file to store intermediate data
+temp_file=$(mktemp)
+
+# Extract deployment details
+echo "$k8s_data" | jq -r '
+  .items[] | 
+  [.metadata.name, .metadata.namespace, .metadata.creationTimestamp, 
+   (.metadata.annotations.user // .metadata.labels.user // 
+    .metadata.annotations.developer // .metadata.labels.developer)] | 
+  @csv' > "$temp_file"
+
+# Initialize associative arrays
+declare -A user_activity
+declare -A namespace_counts
+
+# Process the data
+while IFS=',' read -r deployment namespace creationTimestamp user; do
+  creationDate=$(echo "$creationTimestamp" | cut -d'T' -f1)
+  
+  if [[ "$creationDate" < "$start_date" ]] || [[ "$creationDate" > "$end_date" ]]; then
+    continue
+  fi
+  
+  if [[ -n "$user" ]]; then
+    # Remove quotes from user and namespace
+    user=$(echo "$user" | sed 's/"//g')
+    namespace=$(echo "$namespace" | sed 's/"//g')
     
-    for item in deployments['items']:
-        namespace = item['metadata']['namespace']
-        annotations = item['metadata'].get('annotations', {})
-        labels = item['metadata'].get('labels', {})
-        
-        user = annotations.get('user', labels.get('user'))
-        if not user:
-            user = annotations.get('developer', labels.get('developer'))
-        
-        creation_timestamp = item['metadata']['creationTimestamp']
-        creation_date = creation_timestamp.split('T')[0]
-        
-        if user and start_date <= creation_date <= end_date:
-            user_activity[user]['deployments'] += 1
-            user_activity[user]['namespaces'].add(namespace)
+    # Track deployments and namespaces
+    if [[ -z "${user_activity[$user]}" ]]; then
+      user_activity[$user]="1 $namespace"
+    else
+      count=$(echo "${user_activity[$user]}" | awk '{print $1}')
+      namespaces=$(echo "${user_activity[$user]}" | awk '{print $2}')
+      user_activity[$user]="$((count + 1)) $namespaces $namespace"
+    fi
     
-    # Convert namespaces set to count
-    for user, activity in user_activity.items():
-        activity['namespaces'] = len(activity['namespaces'])
-    
-    return user_activity
+    if [[ -z "${namespace_counts[$user]}" ]]; then
+      namespace_counts[$user]="$namespace"
+    else
+      namespace_counts[$user]="${namespace_counts[$user]} $namespace"
+    fi
+  fi
+done < "$temp_file"
 
-def generate_report(user_activity, output_file):
-    """Generate a CSV report of the top users and developers."""
-    with open(output_file, 'w', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(['User/Developer', 'Total Deployments', 'Total Namespaces'])
-        for user, activity in sorted(user_activity.items(), key=lambda x: x[1]['deployments'], reverse=True):
-            writer.writerow([user, activity['deployments'], activity['namespaces']])
-    print(f"Report generated: {output_file}")
+# Generate the report
+echo "User/Developer,Total Deployments,Total Namespaces" > "$output_file"
+for user in "${!user_activity[@]}"; do
+  deployments=$(echo "${user_activity[$user]}" | awk '{print $1}')
+  namespaces=$(echo "${user_activity[$user]}" | awk '{print $2}' | xargs -n1 | sort -u | wc -l)
+  echo "$user,$deployments,$namespaces" >> "$output_file"
+done
 
-if __name__ == "__main__":
-    # Check if the correct number of arguments is provided
-    if len(sys.argv) != 4:
-        print("Usage: python generate_top_users_report.py <start_date> <end_date> <output_file>")
-        sys.exit(1)
+# Cleanup
+rm "$temp_file"
 
-    # Parameters
-    start_date = sys.argv[1]
-    end_date = sys.argv[2]
-    output_file = sys.argv[3]
-
-    # Validate date format
-    try:
-        datetime.strptime(start_date, '%Y-%m-%d')
-        datetime.strptime(end_date, '%Y-%m-%d')
-    except ValueError:
-        print("Dates must be in YYYY-MM-DD format.")
-        sys.exit(1)
-
-    # Fetch and process data
-    k8s_data = fetch_k8s_data()
-    user_activity = parse_data(k8s_data, start_date, end_date)
-    generate_report(user_activity, output_file)
+echo "Report generated: $output_file"
