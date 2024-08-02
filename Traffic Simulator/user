@@ -17,12 +17,13 @@ start_date=$1
 end_date=$2
 output_file=$3
 
-# Validate date format using regex and check if date is valid
+# Validate date format using regex
 validate_date() {
-  date -d "$1" &> /dev/null
+  date -d "$1" >/dev/null 2>&1
   return $?
 }
 
+# Validate both dates
 if ! validate_date "$start_date" || ! validate_date "$end_date"; then
   echo "Dates must be in YYYY-MM-DD format and valid."
   usage
@@ -42,7 +43,7 @@ echo "$k8s_data" | jq -r '
     .metadata.annotations.developer // .metadata.labels.developer)] | 
   @csv' > "$temp_file"
 
-# Initialize arrays
+# Initialize arrays to store results
 user_activity=()
 namespace_counts=()
 
@@ -59,7 +60,7 @@ while IFS=',' read -r deployment namespace creationTimestamp user; do
     user=$(echo "$user" | sed 's/"//g')
     namespace=$(echo "$namespace" | sed 's/"//g')
     
-    # Check if user is already in the array
+    # Track deployments and namespaces
     if [[ -z "${user_activity[$user]}" ]]; then
       user_activity[$user]="1 $namespace"
     else
