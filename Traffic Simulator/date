@@ -1,0 +1,1 @@
+jq -c '.[] | select(.["on-boarding date"] >= "2019-11-01" and .["on-boarding date"] <= "2020-10-31")' input.json > filtered.json
