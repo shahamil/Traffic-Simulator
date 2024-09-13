@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Usage function
+usage() {
+    echo "Usage: $0 <start_date> <end_date> <output_file>"
+    echo "Dates must be in YYYY-MM-DD format."
+    exit 1
+}
+
+# Check if correct number of arguments is provided
+if [ "$#" -ne 3 ]; then
+    usage
+fi
+
+# Parameters
+start_date=$1
+end_date=$2
+output_file=$3
+
+# Date validation function (using date command compatible with macOS and Linux)
+validate_date() {
+    date -d "$1" >/dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "Invalid date format. Dates must be in YYYY-MM-DD format."
+        exit 1
+    fi
+}
+
+# Validate both start_date and end_date
+validate_date "$start_date"
+validate_date "$end_date"
+
+# Convert start and end dates to seconds since epoch (compatible with Linux/macOS)
+start_epoch=$(date -d "$start_date" +%s)
+end_epoch=$(date -d "$end_date" +%s)
+
+if [ "$start_epoch" -gt "$end_epoch" ]; then
+    echo "Error: Start date is later than end date."
+    exit 1
+fi
+
+# Get list of namespaces with creation timestamps
+namespaces=$(kubectl get namespaces -o json | jq -r '.items[] | [.metadata.name, .metadata.creationTimestamp] | @csv')
+
+# Process namespaces and count those created within the date range and match client appcode criteria
+count=0
+echo "AppCode,Namespace,First Namespace Onboarded" > "$output_file"
+
+while IFS=',' read -r namespace creationTimestamp; do
+    # Extract the date portion (YYYY-MM-DD) and convert to epoch time
+    creationDate=$(echo "$creationTimestamp" | cut -d'T' -f1)
+    creation_epoch=$(date -d "$creationDate" +%s)
+
+    # Check if the creation date is within the specified range
+    if [ "$creation_epoch" -ge "$start_epoch" ] && [ "$creation_epoch" -le "$end_epoch" ]; then
+        # Extract app code from the namespace (first 4 letters before a hyphen)
+        appcode=$(echo "$namespace" | cut -d'-' -f1)
+
+        # Filter namespaces with appcodes where the 4th character is '0'
+        if [[ "${appcode:3:1}" == "0" ]]; then
+            # Log appcode, namespace, and creation date into the output file
+            echo "$appcode,$namespace,$creationDate" >> "$output_file"
+            count=$((count + 1))
+        fi
+    fi
+done <<< "$namespaces"
+
+echo "Total client namespaces created between $start_date and $end_date: $count"
+echo "Report saved to $output_file"
