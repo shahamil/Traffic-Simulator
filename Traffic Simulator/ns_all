@@ -11,30 +11,10 @@ output_file=$1
 cluster_name=$2
 
 # Output CSV header
-echo "AppCode,FirstNamespaceOnboarded,CreationTimestamp,ClusterName,TotalNamespaces" > "$output_file"
+echo "AppCode,Namespace,CreationTimestamp,ClusterName" > "$output_file"
 
 # Get all namespaces
 namespaces=$(kubectl get namespaces -o jsonpath='{range .items[*]}{.metadata.name},{.metadata.creationTimestamp}{"\n"}{end}')
-
-# Initialize arrays to store earliest namespace and count per appcode
-earliest_namespace_keys=()
-earliest_namespace_values=()
-namespace_counts_keys=()
-namespace_counts_values=()
-
-# Helper function to find index in array
-find_index() {
-    local value=$1
-    shift
-    local arr=("$@")
-    for i in "${!arr[@]}"; do
-        if [[ "${arr[$i]}" == "$value" ]]; then
-            echo $i
-            return
-        fi
-    done
-    echo -1
-}
 
 # Initialize total namespace count
 total_namespaces=0
@@ -49,36 +29,10 @@ while IFS=, read -r namespace creationTimestamp; do
 
         echo "Processing AppCode: $appcode in Namespace: $namespace"
 
-        # Update the earliest namespace creation date and name for this appcode
-        index=$(find_index "$appcode" "${earliest_namespace_keys[@]}")
-        if [[ $index -eq -1 || "$creationTimestamp" < "${earliest_namespace_values[$index]}" ]]; then
-            if [[ $index -eq -1 ]]; then
-                earliest_namespace_keys+=("$appcode")
-                earliest_namespace_values+=("$creationTimestamp")
-            else
-                earliest_namespace_values[$index]="$creationTimestamp"
-            fi
-        fi
-
-        # Increment the namespace count for this appcode
-        index=$(find_index "$appcode" "${namespace_counts_keys[@]}")
-        if [[ $index -eq -1 ]]; then
-            namespace_counts_keys+=("$appcode")
-            namespace_counts_values+=(1)
-        else
-            namespace_counts_values[$index]=$((namespace_counts_values[$index] + 1))
-        fi
+        # Write the namespace information to the CSV file
+        echo "$appcode,$namespace,$creationTimestamp,$cluster_name" >> "$output_file"
     fi
 done <<< "$namespaces"
-
-# Write the aggregated data to the CSV file
-for i in "${!earliest_namespace_keys[@]}"; do
-    appcode="${earliest_namespace_keys[$i]}"
-    creationTimestamp="${earliest_namespace_values[$i]}"
-    total_namespaces_index=$(find_index "$appcode" "${namespace_counts_keys[@]}")
-    total_namespaces="${namespace_counts_values[$total_namespaces_index]}"
-    echo "$appcode,$appcode-${creationTimestamp:0:10},${creationTimestamp:0:10},$cluster_name,$total_namespaces" >> "$output_file"
-done
 
 echo "Report generated: $output_file"
 
