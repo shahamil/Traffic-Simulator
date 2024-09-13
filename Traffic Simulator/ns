@@ -1,12 +1,31 @@
 #!/bin/bash
 
-# Fixed start and end dates
+# Set fixed start and end dates
 start_date="2019-01-01"
 end_date=$(date +%Y-%m-%d)  # Today's date
 
+# Function to convert date to epoch time, compatible with both macOS and Linux
+to_epoch() {
+  local input_date=$1
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    date -j -f "%Y-%m-%d" "$input_date" +%s
+  else
+    # Linux
+    date -d "$input_date" +%s
+  fi
+}
+
 # Convert start and end dates to seconds since epoch
-start_epoch=$(date -j -f "%Y-%m-%d" "$start_date" +%s)
-end_epoch=$(date +%s)  # Current time in seconds since epoch
+start_epoch=$(to_epoch "$start_date")
+end_epoch=$(to_epoch "$end_date")
+
+# Get the output file from the argument
+output_file="$1"
+if [ -z "$output_file" ]; then
+    echo "Please provide an output file as an argument."
+    exit 1
+fi
 
 # Get list of namespaces with creation timestamps
 namespaces=$(kubectl get namespaces -o json | jq -r '.items[] | [.metadata.name, .metadata.creationTimestamp] | @csv')
@@ -18,7 +37,7 @@ echo "AppCode,Namespace,First Namespace Onboarded" > "$output_file"
 while IFS=',' read -r namespace creationTimestamp; do
     # Extract the date portion (YYYY-MM-DD) and convert to epoch time
     creationDate=$(echo "$creationTimestamp" | cut -d'T' -f1)
-    creation_epoch=$(date -j -f "%Y-%m-%d" "$creationDate" +%s)
+    creation_epoch=$(to_epoch "$creationDate")
 
     # Check if the creation date is within the specified range
     if [ "$creation_epoch" -ge "$start_epoch" ] && [ "$creation_epoch" -le "$end_epoch" ]; then
