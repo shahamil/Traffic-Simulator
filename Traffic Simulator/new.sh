@@ -1,0 +1,1 @@
+kubectl get secrets --all-namespaces -o json | jq '.items[] | select(.type == "kubernetes.io/tls") | {namespace: .metadata.namespace, name: .metadata.name, cert: .data."tls.crt"}'
